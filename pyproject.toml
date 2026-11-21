@@ -1,0 +1,30 @@
+[project]
+name = "fact-audit"
+version = "0.1.0"
+description = "Local code audit: Semgrep findings, git-diff scope, and dependency scanning with a desktop UI"
+readme = "README.md"
+authors = [
+    { name = "mrtnbtsta", email = "martinbautista0288@outlook.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "flet[desktop]>=1.1.2",
+    "openai>=3.57.0",
+    "packaging>=24.0",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0",
+    "semgrep>=1.186.0",
+]
+
+[project.scripts]
+fact-audit = "fact_audit.main:main"
+fact-audit-ui = "fact_audit.ui:launch"
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.22.3",
+]
