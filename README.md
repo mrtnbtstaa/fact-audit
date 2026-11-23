@@ -1,12 +1,12 @@
 # fact-audit
 
-A local code audit tool that answers three questions about a project in one place: **what is risky in the code**, **what changed**, and **what it depends on**. It combines Semgrep static analysis with an LLM-written report, optional git-diff scoping, and a dependency scanner covering npm, Python and Go — behind a two-command CLI and a one-window desktop UI.
+A local code audit tool that answers three questions about a project in one place: **what is risky in the code**, **what changed**, and **what it depends on**. It combines Opengrep static analysis with an LLM-written report, optional git-diff scoping, and a dependency scanner covering npm, Python and Go — behind a two-command CLI and a one-window desktop UI.
 
 ## What it does
 
 | Stage | Command | Output |
 | --- | --- | --- |
-| Code audit (Semgrep + LLM) | `fact-audit <path>` | `report.md` |
+| Code audit (Opengrep + LLM) | `fact-audit <path>` | `report.md` |
 | Changed files only | `fact-audit <path> --diff` | `report.md` |
 | Dependency scan | `fact-audit deps <path>` | `deps-report.md` |
 | Desktop UI | `fact-audit-ui` | both, in the scanned project |
@@ -17,6 +17,7 @@ The stages are independent: run one, two or all three, in any order. Each writes
 
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/)
+- [Opengrep](https://opengrep.dev) installed for the code-audit stage
 - `GROQ_API_KEY` for the code-audit stage (the dependency scanner works without it)
 - Network access only when you pass `--online` to the dependency scanner
 
@@ -25,6 +26,16 @@ The stages are independent: run one, two or all three, in any order. Each writes
 ```bash
 uv sync
 ```
+
+Install Opengrep, the static analysis engine (a self-contained binary, not a Python package):
+
+```powershell
+irm https://raw.githubusercontent.com/opengrep/opengrep/main/install.ps1 | iex
+```
+
+On macOS and Linux, use `install.sh` from the same repository.
+
+The code-audit stage runs `~/.opengrep/cli/latest/opengrep` when that file exists, and otherwise `opengrep` from `PATH` — so a terminal or Explorer window opened before the install can't hide it.
 
 Create `.env` in the repository root for the code-audit stage:
 
@@ -42,7 +53,7 @@ GROQ_API_KEY=your-key-here
 uv run fact-audit <project-path>
 ```
 
-Runs Semgrep over the project, sends the findings to an OpenAI-compatible endpoint (Groq), and writes a Markdown report grouped by severity. Only findings present in the Semgrep JSON are reported; the model is not allowed to invent issues.
+Runs Opengrep over the project, sends the findings to an OpenAI-compatible endpoint (Groq), and writes a Markdown report grouped by severity. Only findings present in the Opengrep JSON are reported; the model is not allowed to invent issues. Opengrep supports 30+ languages and is compatible with Semgrep rules.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -93,7 +104,7 @@ Caveats:
 - Build on Windows for Windows: PyInstaller does not cross-compile.
 - The window is the Flet desktop client, which is not bundled. On first launch the exe reuses the client cached in `%USERPROFILE%\.flet\client` or downloads it (~40 MB), so that one launch needs network.
 - `GROQ_API_KEY` is read from `.env` in the directory the exe is started from. Put `.env` next to the exe, or start the exe from the folder that contains it.
-- The code-audit stage calls the `semgrep` command on `PATH`; Semgrep is not bundled. The dependency stage works without it.
+- The code-audit stage runs `~/.opengrep/cli/latest/opengrep` if present, otherwise `opengrep` from `PATH`; Opengrep is not bundled. The dependency stage works without it.
 - Reports are written into the selected project folder, not next to the exe.
 
 ## Configuration
@@ -145,7 +156,7 @@ Online data comes from OSV (advisories), the npm registry / PyPI / `proxy.golang
 | `1` | Bad path, missing config, no manifests without `--allow-empty`, or refusing to overwrite a file it did not create |
 | `2` | Invalid arguments |
 
-`fact-audit` always exits `0` and writes a report, including when Semgrep finds nothing.
+`fact-audit` always exits `0` and writes a report, including when Opengrep finds nothing.
 
 ## Tests
 

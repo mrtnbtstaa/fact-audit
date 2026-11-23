@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fact_audit.engines.git_utils import get_changed_files
 from .engines.deps import DepsError, load_config, scan
-from .engines.semgrep import run_semgrep
+from .engines.opengrep import run_opengrep
 from .normalize import truncate
 from .report import generate_report
 from .report_deps import render
@@ -20,13 +20,13 @@ def run_audit(project_path: str, max_findings: int = 20, use_diff: bool = False)
             return "# Code Audit Report\n\nNo changed files found in Git diff. Nothing to audit."
             
         print(f"Found {len(changed_files)} changed files.")
-        # Convert relative git paths to absolute paths so Semgrep can find them
+        # Convert relative git paths to absolute paths so Opengrep can find them
         target_files = [str(Path(project_path) / f) for f in changed_files]
     else:
         print("Scanning entire project...")
 
-    # Pass target_files to run_semgrep
-    findings = run_semgrep(project_path, target_files)
+    # Pass target_files to run_opengrep
+    findings = run_opengrep(project_path, target_files)
     findings = truncate(findings, max_findings)
     
     print(f"Generating report for {len(findings)} findings...")

@@ -14,7 +14,7 @@ from .report_deps import render
 def run_scans(
     target: Path,
     *,
-    semgrep: bool = True,
+    opengrep: bool = True,
     diff: bool = False,
     deps: bool = True,
     online: bool = False,
@@ -25,10 +25,10 @@ def run_scans(
         raise ValueError(f"not a directory: {target}")
 
     written: list[Path] = []
-    if semgrep:
+    if opengrep:
         text = _stage(
             log,
-            "Running Semgrep...",
+            "Running Opengrep...",
             lambda: run_audit(str(target), max_findings=50, use_diff=diff),
         )
         if text is not None:
@@ -158,7 +158,7 @@ def main(page: ft.Page):
         try:
             written = run_scans(
                 Path(target),
-                semgrep=bool(audit_check.value),
+                opengrep=bool(audit_check.value),
                 diff=bool(diff_check.value),
                 deps=bool(deps_check.value),
                 online=bool(online_check.value),

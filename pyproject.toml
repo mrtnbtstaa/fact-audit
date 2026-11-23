@@ -1,7 +1,7 @@
 [project]
 name = "fact-audit"
 version = "0.1.0"
-description = "Local code audit: Semgrep findings, git-diff scope, and dependency scanning with a desktop UI"
+description = "Local code audit: Opengrep findings, git-diff scope, and dependency scanning with a desktop UI"
 readme = "README.md"
 authors = [
     { name = "mrtnbtsta", email = "martinbautista0288@outlook.com" }
@@ -13,7 +13,6 @@ dependencies = [
     "packaging>=24.0",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0",
-    "semgrep>=1.186.0",
 ]
 
 [project.scripts]

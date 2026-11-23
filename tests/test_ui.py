@@ -23,7 +23,7 @@ class RunScansTest(unittest.TestCase):
             write(root, "requirements.txt", "requests==2.31.0\n")
             lines: list[str] = []
 
-            written = run_scans(root, semgrep=False, deps=True, log=lines.append)
+            written = run_scans(root, opengrep=False, deps=True, log=lines.append)
 
             self.assertEqual([p.name for p in written], ["deps-report.md"])
             report = (root / "deps-report.md").read_text(encoding="utf-8")
@@ -38,7 +38,7 @@ class RunScansTest(unittest.TestCase):
             lines: list[str] = []
 
             with mock.patch("fact_audit.ui.run_audit", side_effect=RuntimeError("no key")):
-                written = run_scans(root, semgrep=True, deps=True, log=lines.append)
+                written = run_scans(root, opengrep=True, deps=True, log=lines.append)
 
             self.assertEqual([p.name for p in written], ["deps-report.md"])
             self.assertTrue(any("failed: no key" in line for line in lines))
@@ -46,11 +46,11 @@ class RunScansTest(unittest.TestCase):
     def test_missing_folder_raises(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
-                run_scans(Path(tmp) / "missing", semgrep=False, deps=True, log=lambda _: None)
+                run_scans(Path(tmp) / "missing", opengrep=False, deps=True, log=lambda _: None)
 
     def test_nothing_selected_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
-            written = run_scans(Path(tmp), semgrep=False, deps=False, log=lambda _: None)
+            written = run_scans(Path(tmp), opengrep=False, deps=False, log=lambda _: None)
             self.assertEqual(written, [])
 
     def test_main_builds_page(self):

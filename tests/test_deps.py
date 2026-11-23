@@ -215,7 +215,7 @@ class CliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write(root, "requirements.txt", "requests==2.31.0\n")
-            sarif = write(root, "semgrep.sarif", '{"version": "2.1.0"}')
+            sarif = write(root, "opengrep.sarif", '{"version": "2.1.0"}')
             diff = write(root, "diff.txt", "src/app.py\n")
             result = cli(str(root), cwd=root)
             self.assertEqual(result.returncode, 0, result.stderr)

@@ -2,7 +2,7 @@ import os
 import json
 
 from openai import OpenAI
-from .engines.semgrep import Finding
+from .engines.opengrep import Finding
 from dotenv import load_dotenv
 
 load_dotenv()
