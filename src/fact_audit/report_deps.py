@@ -170,7 +170,7 @@ def _licenses(result: ScanResult) -> list[str]:
     lines = ["## Licenses", ""]
     deps = [d for m in result.manifests if not m.error for d in m.dependencies]
     flagged = [
-        dep for dep in deps if _denylisted(dep.license, result.config.denylist)
+        dep for dep in deps if denylisted(dep.license, result.config.denylist)
     ]
     if flagged:
         listed = ", ".join(
@@ -221,7 +221,7 @@ def _installed(dep: Dependency) -> str:
     return f"{dep.declared} (range)" if dep.declared else "unknown"
 
 
-def _denylisted(license_id: str, denylist: list[str]) -> bool:
+def denylisted(license_id: str, denylist: list[str]) -> bool:
     return any(
         fnmatch(license_id.lower(), pattern.lower()) for pattern in denylist
     )

@@ -26,14 +26,15 @@ def run_scans(
 
     written: list[Path] = []
     if opengrep:
-        text = _stage(
+        result = _stage(
             log,
             "Running Opengrep...",
-            lambda: run_audit(str(target), max_findings=50, use_diff=diff),
+            lambda: run_audit(str(target), max_findings=50, baseline="HEAD" if diff else None),
         )
-        if text is not None:
+        if result is not None:
+            report, _ = result
             output = target / "report.md"
-            output.write_text(text, encoding="utf-8")
+            output.write_text(report, encoding="utf-8")
             written.append(output)
             log(f"Wrote {output}")
 

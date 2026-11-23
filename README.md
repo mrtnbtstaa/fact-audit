@@ -9,6 +9,7 @@ A local code audit tool that answers three questions about a project in one plac
 | Code audit (Opengrep + LLM) | `fact-audit <path>` | `report.md` |
 | Changed files only | `fact-audit <path> --diff` | `report.md` |
 | Dependency scan | `fact-audit deps <path>` | `deps-report.md` |
+| CI gate (both stages) | `fact-audit ci <path>` | `report.md`, `deps-report.md`, `fact-audit.sarif` |
 | Desktop UI | `fact-audit-ui` | both, in the scanned project |
 
 The stages are independent: run one, two or all three, in any order. Each writes its own file and never touches the others' output.
@@ -18,7 +19,7 @@ The stages are independent: run one, two or all three, in any order. Each writes
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/)
 - [Opengrep](https://opengrep.dev) installed for the code-audit stage
-- `GROQ_API_KEY` for the code-audit stage (the dependency scanner works without it)
+- `GROQ_API_KEY` for the LLM-written code-audit report (optional — without it, a deterministic report is written)
 - Network access only when you pass `--online` to the dependency scanner
 
 ## Install
@@ -60,6 +61,10 @@ Runs Opengrep over the project, sends the findings to an OpenAI-compatible endpo
 | `--out` | `report.md` | Where to write the report |
 | `--max-findings` | `50` | Cap on findings sent to the model |
 | `--diff` | off | Scan only files changed against `HEAD` (requires git) |
+| `--baseline` | none | Git ref to diff against; implies `--diff` |
+| `--no-llm` | off | Skip the model and write the deterministic findings table |
+
+If `GROQ_API_KEY` is missing, or the API call fails, the report falls back to a deterministic table (severity, `file:line`, rule, message) and a warning is printed. The scan never fails because the model is unavailable.
 
 ### Dependency scan
 
@@ -78,6 +83,48 @@ Writes `deps-report.md` with, in order: executive summary, manifests (and parse 
 | `--allow-empty` | off | Exit 0 when the project has no supported manifests |
 
 Offline is the default and the report says so: `unknown` means *not checked*, not *no findings*.
+
+### CI gate
+
+```bash
+uv run fact-audit ci <project-path> [--diff] [--online] [--no-llm] [--out-dir .]
+```
+
+Runs the code audit and the dependency scan in one pass and writes `report.md`, `deps-report.md` and `fact-audit.sarif` into `--out-dir` (default: current directory). SARIF carries code findings only — dependency findings have no file or line to anchor to and stay in the Markdown report and the exit code.
+
+It prints a verdict and exits non-zero when the policy is violated:
+
+```
+fact-audit: FAIL
+  - 3 code finding(s) at or above ERROR
+  code:         3 finding(s)
+  dependencies: 1 critical, 2 high; licenses: 4 denylisted
+  artifacts:    report.md, deps-report.md, fact-audit.sarif
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--diff` / `--baseline` | off / none | Gate only files changed against `HEAD` or the given ref |
+| `--online` | off | Look up advisories and licenses; without it vulnerability and license gates do not apply |
+| `--out-dir` | `.` | Where the three artifacts are written |
+| `--no-llm` | off | Deterministic report; recommended in CI (free and reproducible) |
+| `--fail-on` | `error` | Fail on code findings at or above `error`, `warning`, `info`; `none` disables |
+| `--fail-on-vuln` | `high` | Fail on advisories at or above `critical`, `high`, `medium`, `low`; needs `--online` |
+| `--fail-on-license` | off | Fail on denylisted licenses (the default list flags GPL/AGPL, so it is opt-in) |
+
+A stage that crashes is reported and the other still runs. No changed files and no manifests are passes, not errors.
+
+GitHub Actions:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0        # --diff/--baseline needs the base ref
+- run: uv sync
+- run: uv run fact-audit ci . --diff --no-llm --fail-on error
+```
+
+Upload `fact-audit.sarif` with `github/codeql-action/upload-sarif@v3` to get inline annotations in the pull request.
 
 ### Desktop UI
 
@@ -156,7 +203,18 @@ Online data comes from OSV (advisories), the npm registry / PyPI / `proxy.golang
 | `1` | Bad path, missing config, no manifests without `--allow-empty`, or refusing to overwrite a file it did not create |
 | `2` | Invalid arguments |
 
-`fact-audit` always exits `0` and writes a report, including when Opengrep finds nothing.
+`fact-audit` (code audit only) exits `0` when the report is written, `3` when Opengrep could not run or returned unusable output, and `2` on invalid arguments.
+
+`fact-audit ci`:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Pass |
+| `1` | Policy violated |
+| `2` | Bad arguments, path or config |
+| `3` | A stage failed to run (engine missing or crashed) |
+
+`3` matters: "the scanner broke" must not look like "the code is clean".
 
 ## Tests
 
@@ -164,7 +222,7 @@ Online data comes from OSV (advisories), the npm registry / PyPI / `proxy.golang
 uv run python -m unittest discover -s tests
 ```
 
-25 tests, no network required. One live-feed test is opt-in:
+41 tests, no network required. One live-feed test is opt-in:
 
 ```powershell
 $env:DEPSCAN_ONLINE_TEST="1"; uv run python -m unittest tests.test_deps.OnlineTest
@@ -176,4 +234,4 @@ $env:DEPSCAN_ONLINE_TEST="1"; uv run python -m unittest tests.test_deps.OnlineTe
 - Python transitive dependencies are not resolved in this version.
 - `go.sum` is best-effort and may list historical module versions; no Go toolchain is invoked.
 - Vendored code (`vendor/`, `third_party/`) is skipped and only noted in the summary.
-- The code-audit report depends on the configured LLM endpoint and the `GROQ_API_KEY`.
+- The LLM-written code-audit report depends on the configured endpoint and `GROQ_API_KEY`; without them the report is a deterministic findings table.

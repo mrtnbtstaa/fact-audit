@@ -6,6 +6,10 @@ from pathlib import Path
 from fact_audit.dataclasses.fidings import Finding
 
 
+class EngineError(RuntimeError):
+    """The static analysis engine could not run or return usable output."""
+
+
 def _binary() -> str:
     """Use the installer's location; PATH is stale in long-running shells and Explorer."""
     installed = Path.home() / ".opengrep" / "cli" / "latest" / (
@@ -14,7 +18,9 @@ def _binary() -> str:
     return str(installed) if installed.is_file() else "opengrep"
 
 
-def run_opengrep(project_path: str, target_files: list[str] = None) -> list[Finding]:
+def run_opengrep(
+    project_path: str, target_files: list[str] = None, sarif_path: str = None
+) -> list[Finding]:
     print(f"Running opengrep on: {project_path}...")
     
     # Determine what to scan: specific files (if diff mode) or the whole project
@@ -22,6 +28,8 @@ def run_opengrep(project_path: str, target_files: list[str] = None) -> list[Find
     
     # Build the command dynamically
     cmd = [_binary(), "--config=auto", "--json", "--quiet"]
+    if sarif_path:
+        cmd += ["--sarif-output", str(sarif_path)]
     cmd.extend(targets)
 
     try:
@@ -29,31 +37,27 @@ def run_opengrep(project_path: str, target_files: list[str] = None) -> list[Find
             cmd,
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600
         )
-    except FileNotFoundError:
-        print("ERROR: The 'opengrep' command was not found. Install it or add it to your PATH.")
-        return []
+    except FileNotFoundError as exc:
+        raise EngineError(
+            "the 'opengrep' command was not found; install it or add it to your PATH"
+        ) from exc
 
     # 1. Check if Opengrep crashed
     if result.returncode != 0:
-        print(f"ERROR: Opengrep exited with code {result.returncode}")
-        print(f"STDERR: {result.stderr}")
-        return []
+        raise EngineError(
+            f"opengrep exited with code {result.returncode}: {result.stderr.strip()}"
+        )
 
     # 2. Look at what Opengrep actually returned
     raw_output = result.stdout
-    if not raw_output:
-        print("ERROR: Opengrep returned empty output.")
-        print(f"STDERR: {result.stderr}")
-        return []
+    if not raw_output.strip():
+        raise EngineError(f"opengrep returned no output: {result.stderr.strip()}")
 
     # 3. Try to parse the JSON safely
     try:
         data = json.loads(raw_output)
     except json.JSONDecodeError as e:
-        print(f"ERROR: Failed to parse Opengrep JSON output: {e}")
-        print("RAW OUTPUT WAS:")
-        print(raw_output[:500] + "..." if len(raw_output) > 500 else raw_output)
-        return []
+        raise EngineError(f"could not parse opengrep output: {e}") from e
 
     # 4. Print how many findings Opengrep actually found
     results = data.get("results", [])

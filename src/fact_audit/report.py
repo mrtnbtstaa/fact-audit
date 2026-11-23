@@ -1,8 +1,10 @@
 import os
 import json
+import sys
 
 from openai import OpenAI
 from .engines.opengrep import Finding
+from .normalize import SEVERITY_ORDER
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -47,15 +49,68 @@ FINDINGS JSON:
 {facts}
 """
 
-def generate_report(findings: list[Finding]) -> str:
+def render_findings(findings: list[Finding]) -> str:
+    """Deterministic report, used when the LLM is disabled or unavailable."""
+    if not findings:
+        return "# Code Audit Report\n\nNo issues detected.\n"
+
+    counts: dict[str, int] = {}
+    for finding in findings:
+        counts[finding.severity] = counts.get(finding.severity, 0) + 1
+
+    lines = [
+        "# Code Audit Report",
+        "",
+        "## Summary",
+        "",
+        f"- Total Findings: {len(findings)}",
+        "- Severity Breakdown: "
+        + ", ".join(
+            f"{counts[s]} {s}"
+            for s in sorted(counts, key=lambda s: SEVERITY_ORDER.get(s, 99))
+        ),
+        "",
+        "## Findings",
+        "",
+    ]
+    grouped: dict[str, list[Finding]] = {}
+    for finding in findings:
+        grouped.setdefault(finding.severity, []).append(finding)
+    for severity in sorted(grouped, key=lambda s: SEVERITY_ORDER.get(s, 99)):
+        lines += [f"### {severity}", ""]
+        for finding in sorted(grouped[severity], key=lambda f: (f.file, f.line)):
+            lines += [
+                f"- **`{finding.file}:{finding.line}`** | Rule: `{finding.rule_id}`",
+                f"  - {finding.message}",
+            ]
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def generate_report(findings: list[Finding], use_llm: bool = True) -> str:
+    if not use_llm:
+        return render_findings(findings)
+
+    key = os.environ.get("GROQ_API_KEY")
+    if not key:
+        print("warning: GROQ_API_KEY not set; writing deterministic report.", file=sys.stderr)
+        return render_findings(findings)
+
     facts = [f.__dict__ for f in findings]
-    client = OpenAI(
-        base_url="https://api.groq.com/openai/v1",
-        api_key=os.environ["GROQ_API_KEY"],
-    )
-    resp = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
-        messages=[{"role": "user", "content": PROMPT.format(facts=json.dumps(facts, indent=2))}],
-        temperature=0.1,
-    )
-    return resp.choices[0].message.content
+    try:
+        client = OpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=key,
+        )
+        resp = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[{"role": "user", "content": PROMPT.format(facts=json.dumps(facts, indent=2))}],
+            temperature=0.1,
+        )
+        return resp.choices[0].message.content
+    except Exception as exc:
+        print(
+            f"warning: LLM report unavailable ({exc}); writing deterministic report.",
+            file=sys.stderr,
+        )
+        return render_findings(findings)
