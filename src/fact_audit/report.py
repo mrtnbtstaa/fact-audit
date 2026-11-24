@@ -83,6 +83,8 @@ def render_findings(findings: list[Finding]) -> str:
                 f"- **`{finding.file}:{finding.line}`** | Rule: `{finding.rule_id}`",
                 f"  - {finding.message}",
             ]
+            if finding.cwe or finding.owasp:
+                lines.append(f"  - Classification: {', '.join(finding.cwe + finding.owasp)}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 

@@ -4,6 +4,13 @@ import subprocess
 from pathlib import Path
 
 from fact_audit.dataclasses.fidings import Finding
+from fact_audit.findings import normalize
+
+
+def _strings(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
 
 
 class EngineError(RuntimeError):
@@ -66,12 +73,16 @@ def run_opengrep(
     findings = []
     for r in results:
         extra = r.get("extra", {})
-        
+        metadata = extra.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+
         # Clean up the file path to make the report readable (remove the absolute project path)
         file_path = r.get("path", "")
         if target_files is None and file_path.startswith(project_path):
             file_path = file_path[len(project_path):].lstrip("\\/")
-            
+
+        confidence = str(metadata.get("confidence") or "").upper()
         findings.append(Finding(
             source="opengrep",
             file=file_path, # Use the cleaned path
@@ -79,5 +90,8 @@ def run_opengrep(
             severity=extra.get("severity", "INFO").upper(),
             message=extra.get("message", ""),
             rule_id=r.get("check_id", ""),
+            confidence=confidence if confidence in ("HIGH", "MEDIUM", "LOW") else "UNKNOWN",
+            cwe=[c for c in _strings(metadata.get("cwe")) if c.upper().startswith("CWE-")],
+            owasp=_strings(metadata.get("owasp")),
         ))
-    return findings
+    return normalize(project_path, findings)

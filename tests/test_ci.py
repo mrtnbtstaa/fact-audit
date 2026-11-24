@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from fact_audit.dataclasses.fidings import Finding
 from fact_audit.engines.git_utils import GitError, get_changed_files
 from fact_audit.engines.opengrep import EngineError
 from fact_audit.main import run_ci_command
+from fact_audit.findings import baseline_document, load_baseline, normalize, save_baseline
 from fact_audit.report import generate_report, render_findings
 
 
@@ -143,6 +145,110 @@ class CiTest(unittest.TestCase):
         self.assertEqual(args[2], "HEAD")
         self.assertFalse(args[3])
         self.assertTrue(str(args[4]).endswith("fact-audit.sarif"))
+
+
+class BaselineGateTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.path = self.root / "fact-audit-baseline.json"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def finding(self, message: str, severity: str = "ERROR") -> Finding:
+        item = Finding(
+            source="opengrep", file="a.py", line=1, severity=severity, message=message, rule_id="r.x"
+        )
+        return normalize(str(self.root), [item])[0]
+
+    def write_baseline(self, *findings: Finding) -> None:
+        save_baseline(self.path, baseline_document(str(self.root), list(findings)))
+
+    def run_with(self, findings: list[Finding], *extra: str) -> tuple[int, str, str]:
+        with mock.patch("fact_audit.main.run_audit", return_value=("r", findings)), \
+             mock.patch("fact_audit.main.scan", return_value=scan_result()):
+            return run_ci(
+                [str(self.root), "--baseline-file", str(self.path), "--out-dir", str(self.root), *extra]
+            )
+
+    def test_only_new_findings_are_gated(self):
+        known = self.finding("known")
+        self.write_baseline(known)
+
+        code, out, _ = self.run_with([known])
+        self.assertEqual(code, 0)
+
+        code, out, _ = self.run_with([known, self.finding("added")])
+        self.assertEqual(code, 1)
+        self.assertIn("1 new/reintroduced code finding", out)
+
+    def test_fail_on_all_gates_existing_findings(self):
+        known = self.finding("known")
+        self.write_baseline(known)
+
+        self.assertEqual(self.run_with([known])[0], 0)
+        self.assertEqual(self.run_with([known], "--fail-on-all")[0], 1)
+
+    def test_max_new_limits_new_findings(self):
+        known = self.finding("known")
+        self.write_baseline(known)
+        current = [known, self.finding("a"), self.finding("b")]
+
+        self.assertEqual(self.run_with(current, "--max-new", "2", "--fail-on", "none")[0], 0)
+        self.assertEqual(self.run_with(current, "--max-new", "1", "--fail-on", "none")[0], 1)
+
+    def test_update_baseline_records_resolved(self):
+        known = self.finding("known")
+        self.write_baseline(known)
+        added = self.finding("added")
+
+        code, _, _ = self.run_with([added], "--update-baseline")
+
+        self.assertEqual(code, 1)
+        doc = load_baseline(self.path, str(self.root))
+        self.assertEqual([r["fingerprint"] for r in doc["findings"]], [added.fingerprint])
+        self.assertEqual([r["fingerprint"] for r in doc["resolved"]], [known.fingerprint])
+
+    def test_diff_scoped_update_never_resolves(self):
+        known = self.finding("known")
+        self.write_baseline(known)
+        added = self.finding("added")
+
+        self.run_with([added], "--diff", "--update-baseline")
+
+        doc = load_baseline(self.path, str(self.root))
+        self.assertEqual(
+            {r["fingerprint"] for r in doc["findings"]}, {known.fingerprint, added.fingerprint}
+        )
+        self.assertEqual(doc["resolved"], [])
+        self.assertEqual(
+            json.loads((self.root / "fact-audit.json").read_text(encoding="utf-8"))["summary"]["resolved"], 0
+        )
+
+    def test_corrupt_baseline_exits_two(self):
+        self.path.write_text("{not json", encoding="utf-8")
+        code, _, err = run_ci([str(self.root), "--baseline-file", str(self.path)])
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read baseline", err)
+
+    def test_max_new_requires_a_baseline(self):
+        code, _, err = run_ci([str(self.root), "--max-new", "1"])
+        self.assertEqual(code, 2)
+        self.assertIn("require --baseline-file", err)
+
+    def test_json_and_csv_reports_carry_status(self):
+        known = self.finding("known")
+        self.write_baseline(known)
+        self.run_with([known, self.finding("added")])
+
+        document = json.loads((self.root / "fact-audit.json").read_text(encoding="utf-8"))
+        self.assertEqual(document["gate"]["scope"], "new")
+        self.assertEqual(document["summary"]["by_status"], {"existing": 1, "new": 1})
+        self.assertEqual(document["scanners"]["opengrep"], "ok")
+        csv = (self.root / "fact-audit.csv").read_text(encoding="utf-8")
+        self.assertIn(",new,", csv)
+        self.assertIn(",existing,", csv)
 
 
 class GitUtilsTest(unittest.TestCase):

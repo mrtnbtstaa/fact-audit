@@ -13,3 +13,6 @@ wheels/
 .env
 report.md
 deps-report.md
+fact-audit.sarif
+fact-audit.json
+fact-audit.csv

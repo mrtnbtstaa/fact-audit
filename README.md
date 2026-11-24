@@ -9,7 +9,8 @@ A local code audit tool that answers three questions about a project in one plac
 | Code audit (Opengrep + LLM) | `fact-audit <path>` | `report.md` |
 | Changed files only | `fact-audit <path> --diff` | `report.md` |
 | Dependency scan | `fact-audit deps <path>` | `deps-report.md` |
-| CI gate (both stages) | `fact-audit ci <path>` | `report.md`, `deps-report.md`, `fact-audit.sarif` |
+| Findings baseline | `fact-audit baseline <path>` | `fact-audit-baseline.json` |
+| CI gate (both stages) | `fact-audit ci <path>` | `report.md`, `deps-report.md`, `fact-audit.sarif`, `.json`, `.csv` |
 | Desktop UI | `fact-audit-ui` | both, in the scanned project |
 
 The stages are independent: run one, two or all three, in any order. Each writes its own file and never touches the others' output.
@@ -56,6 +57,8 @@ uv run fact-audit <project-path>
 
 Runs Opengrep over the project, sends the findings to an OpenAI-compatible endpoint (Groq), and writes a Markdown report grouped by severity. Only findings present in the Opengrep JSON are reported; the model is not allowed to invent issues. Opengrep supports 30+ languages and is compatible with Semgrep rules.
 
+Findings are normalized before reporting: `ERROR`/`WARNING`/`INFO` become `HIGH`/`MEDIUM`/`LOW` (anything else is `UNKNOWN`), the scanner's original level is kept, and confidence, CWE and OWASP metadata are carried through when the rule provides them.
+
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--out` | `report.md` | Where to write the report |
@@ -90,7 +93,7 @@ Offline is the default and the report says so: `unknown` means *not checked*, no
 uv run fact-audit ci <project-path> [--diff] [--online] [--no-llm] [--out-dir .]
 ```
 
-Runs the code audit and the dependency scan in one pass and writes `report.md`, `deps-report.md` and `fact-audit.sarif` into `--out-dir` (default: current directory). SARIF carries code findings only — dependency findings have no file or line to anchor to and stay in the Markdown report and the exit code.
+Runs the code audit and the dependency scan in one pass and writes `report.md`, `deps-report.md`, `fact-audit.sarif`, `fact-audit.json` and `fact-audit.csv` into `--out-dir` (default: current directory). SARIF, JSON and CSV carry code findings only — dependency findings have no file or line to anchor to and stay in the Markdown report, the JSON dependency summary and the exit code.
 
 It prints a verdict and exits non-zero when the policy is violated:
 
@@ -105,12 +108,18 @@ fact-audit: FAIL
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--diff` / `--baseline` | off / none | Gate only files changed against `HEAD` or the given ref |
+| `--baseline-file` | none | Findings baseline to compare against; gates only new and reintroduced findings |
+| `--update-baseline` | off | Rewrite the baseline file after a completed scan (records resolved findings) |
 | `--online` | off | Look up advisories and licenses; without it vulnerability and license gates do not apply |
-| `--out-dir` | `.` | Where the three artifacts are written |
+| `--out-dir` | `.` | Where the five artifacts are written |
 | `--no-llm` | off | Deterministic report; recommended in CI (free and reproducible) |
-| `--fail-on` | `error` | Fail on code findings at or above `error`, `warning`, `info`; `none` disables |
+| `--fail-on` | `error` | Fail on code findings at or above `critical`, `high`, `medium`, `low`; `error`/`warning`/`info` are aliases; `none` disables |
+| `--fail-on-all` | off | Gate every finding, not only new and reintroduced ones |
+| `--max-new` | none | Fail when more than N new/reintroduced findings appear (needs `--baseline-file`) |
 | `--fail-on-vuln` | `high` | Fail on advisories at or above `critical`, `high`, `medium`, `low`; needs `--online` |
 | `--fail-on-license` | off | Fail on denylisted licenses (the default list flags GPL/AGPL, so it is opt-in) |
+
+`UNKNOWN` severity is never gated: an unmappable scanner level is reported, not guessed into a failure.
 
 A stage that crashes is reported and the other still runs. No changed files and no manifests are passes, not errors.
 
@@ -125,6 +134,29 @@ GitHub Actions:
 ```
 
 Upload `fact-audit.sarif` with `github/codeql-action/upload-sarif@v3` to get inline annotations in the pull request.
+
+### Baselines and finding lifecycle
+
+```bash
+uv run fact-audit baseline <project-path>                    # writes <project>/fact-audit-baseline.json
+uv run fact-audit ci <project-path> --baseline-file <file>   # gate only new findings
+uv run fact-audit ci <project-path> --baseline-file <file> --update-baseline
+```
+
+A baseline records the findings, creation time, Git revision and repository remote, so it is portable to a fresh CI checkout and can be committed. `ci` labels every current finding:
+
+| Status | Meaning |
+| --- | --- |
+| `new` | not in the baseline or its resolved history |
+| `existing` | recorded in the baseline and still detected |
+| `reintroduced` | previously resolved and detected again |
+| `resolved` | in the baseline but absent from a completed scan |
+
+Fingerprints are `file + rule + message` with whitespace normalized and **no line number**, so moving code does not create a new finding. Identical findings in one file share a fingerprint.
+
+`--update-baseline` rolls the baseline forward and keeps resolved fingerprints, which is what makes reintroduction detectable. It only runs when the scan completed, so a crashed or partial scan never marks findings resolved. Writes are atomic (temp file, then replace), and the file is versioned: corrupt, foreign-repository or older-fingerprint baselines are rejected with an error instead of being half-read.
+
+The status of every finding is in `fact-audit.json` and `fact-audit.csv`, and a one-line comparison is appended to `report.md`.
 
 ### Desktop UI
 
@@ -203,7 +235,7 @@ Online data comes from OSV (advisories), the npm registry / PyPI / `proxy.golang
 | `1` | Bad path, missing config, no manifests without `--allow-empty`, or refusing to overwrite a file it did not create |
 | `2` | Invalid arguments |
 
-`fact-audit` (code audit only) exits `0` when the report is written, `3` when Opengrep could not run or returned unusable output, and `2` on invalid arguments.
+`fact-audit` (code audit only) exits `0` when the report is written, `3` when Opengrep could not run or returned unusable output, and `2` on invalid arguments. `fact-audit baseline` exits `0` when the file is written, `2` for a bad path or unwritable output, and `3` when Opengrep could not run.
 
 `fact-audit ci`:
 
@@ -222,7 +254,7 @@ Online data comes from OSV (advisories), the npm registry / PyPI / `proxy.golang
 uv run python -m unittest discover -s tests
 ```
 
-41 tests, no network required. One live-feed test is opt-in:
+66 tests, no network required. One live-feed test is opt-in:
 
 ```powershell
 $env:DEPSCAN_ONLINE_TEST="1"; uv run python -m unittest tests.test_deps.OnlineTest
@@ -235,3 +267,5 @@ $env:DEPSCAN_ONLINE_TEST="1"; uv run python -m unittest tests.test_deps.OnlineTe
 - `go.sum` is best-effort and may list historical module versions; no Go toolchain is invoked.
 - Vendored code (`vendor/`, `third_party/`) is skipped and only noted in the summary.
 - The LLM-written code-audit report depends on the configured endpoint and `GROQ_API_KEY`; without them the report is a deterministic findings table.
+- Baselines identify findings by `file + rule + message`, so identical findings in one file share a fingerprint.
+- No suppression or accepted-risk files yet; use a baseline to absorb a legacy backlog. No secret or configuration scanner, and no audit database beyond the baseline file and its resolved list.
