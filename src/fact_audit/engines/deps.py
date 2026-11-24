@@ -82,7 +82,13 @@ def load_config(target: Path, explicit: str | None = None) -> Config:
         if key in data and not isinstance(data[key], (str, int)):
             raise DepsError(f"config {path}: {key} has the wrong type")
     if "output" in data:
-        config.output = str(data["output"])
+        output = Path(str(data["output"]))
+        root = target.resolve()
+        resolved = (target / output).resolve()
+        # A scanned repository must not choose a write path outside itself.
+        if output.is_absolute() or resolved == root or not resolved.is_relative_to(root):
+            raise DepsError(f"config {path}: output must be a file inside the project")
+        config.output = str(target / output)
     if "cache_ttl_hours" in data:
         config.cache_ttl_hours = int(data["cache_ttl_hours"])
     if "allow_empty" in data:

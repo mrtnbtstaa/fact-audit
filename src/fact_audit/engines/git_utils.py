@@ -6,7 +6,7 @@ class GitError(RuntimeError):
 def get_changed_files(project_path: str, baseline: str = "HEAD") -> list[str]:
     try:
         result = subprocess.run(
-            ["git", "-C", project_path, "diff", "--name-only", "--diff-filter=d", baseline],
+            ["git", "-C", project_path, "diff", "--name-only", "--diff-filter=d", "--end-of-options", baseline],
             capture_output=True, text=True, encoding="utf-8", errors="replace", check=True
         )
     except FileNotFoundError as exc:

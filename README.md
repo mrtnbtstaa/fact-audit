@@ -182,7 +182,7 @@ Caveats:
 
 - Build on Windows for Windows: PyInstaller does not cross-compile.
 - The window is the Flet desktop client, which is not bundled. On first launch the exe reuses the client cached in `%USERPROFILE%\.flet\client` or downloads it (~40 MB), so that one launch needs network.
-- `GROQ_API_KEY` is read from `.env` in the directory the exe is started from. Put `.env` next to the exe, or start the exe from the folder that contains it.
+- `GROQ_API_KEY` is read from `.env` next to the exe, never from the folder you start it in.
 - The code-audit stage runs `~/.opengrep/cli/latest/opengrep` if present, otherwise `opengrep` from `PATH`; Opengrep is not bundled. The dependency stage works without it.
 - Reports are written into the selected project folder, not next to the exe.
 
@@ -208,7 +208,7 @@ cache_ttl_hours: 24
 | --- | --- | --- |
 | `denylist` | copyleft + source-available list | Licenses flagged in the report; a custom list fully replaces the default |
 | `extra_manifests` | none | Additional filename globs to parse, with their ecosystem |
-| `output` | `deps-report.md` | Output path (relative to the working directory) |
+| `output` | `deps-report.md` | Report path; must stay inside the project (`--out` accepts any path) |
 | `allow_empty` | `false` | Exit 0 when no manifests are found |
 | `online` | `false` | Enable online lookups without `--online` |
 | `cache_ttl_hours` | `24` | How long feed responses stay valid |
@@ -254,7 +254,7 @@ Online data comes from OSV (advisories), the npm registry / PyPI / `proxy.golang
 uv run python -m unittest discover -s tests
 ```
 
-66 tests, no network required. One live-feed test is opt-in:
+72 tests, no network required. One live-feed test is opt-in:
 
 ```powershell
 $env:DEPSCAN_ONLINE_TEST="1"; uv run python -m unittest tests.test_deps.OnlineTest

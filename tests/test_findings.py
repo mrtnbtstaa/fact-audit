@@ -164,6 +164,22 @@ class ClassificationTest(unittest.TestCase):
 
 
 class CsvTest(unittest.TestCase):
+    def test_formula_cells_are_prefixed(self):
+        item = Finding(
+            source="opengrep",
+            file="=cmd.xls",
+            line=1,
+            severity="ERROR",
+            message="=1+1",
+            rule_id="r",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            item = normalize(tmp, [item])[0]
+
+        row = csv_text([item], {}).splitlines()[1]
+        self.assertIn("'=cmd.xls", row)
+        self.assertIn("'=1+1", row)
+
     def test_header_and_row_per_finding(self):
         with tempfile.TemporaryDirectory() as tmp:
             items = normalize(tmp, [finding(), finding(message="other", line=7)])

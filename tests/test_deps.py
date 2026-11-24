@@ -262,6 +262,34 @@ class CliTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("denylist must be a list", result.stderr)
 
+    def test_config_cannot_write_outside_the_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "proj"
+            root.mkdir()
+            write(root, "requirements.txt", "requests==2.31.0\n")
+
+            escape = base / "escape.md"
+            write(root, ".depscan.yml", f"output: {escape}\n")
+            result = cli(str(root), cwd=root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("inside the project", result.stderr)
+            self.assertFalse(escape.exists())
+
+            write(root, ".depscan.yml", "output: ../escape2.md\n")
+            result = cli(str(root), cwd=root)
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse((base / "escape2.md").exists())
+
+    def test_config_output_inside_the_project_is_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root, "requirements.txt", "requests==2.31.0\n")
+            write(root, ".depscan.yml", "output: reports/deps.md\n")
+            result = cli(str(root), cwd=root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((root / "reports" / "deps.md").is_file())
+
 
 @unittest.skipUnless(
     os.environ.get("DEPSCAN_ONLINE_TEST"), "set DEPSCAN_ONLINE_TEST=1 to hit live feeds"

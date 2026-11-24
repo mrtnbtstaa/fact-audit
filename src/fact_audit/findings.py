@@ -186,6 +186,12 @@ def save_baseline(path: str | Path, doc: dict) -> None:
     os.replace(tmp, target)  # atomic: a failed write never leaves a half-valid baseline
 
 
+def _csv_cell(value) -> str:
+    text = str(value)
+    # Spreadsheets evaluate cells starting with these characters as formulas.
+    return "'" + text if text.startswith(("=", "+", "-", "@", "\t", "\r")) else text
+
+
 def csv_text(findings: list[Finding], status: dict[str, str]) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
@@ -197,17 +203,20 @@ def csv_text(findings: list[Finding], status: dict[str, str]) -> str:
     )
     for finding in findings:
         writer.writerow(
-            (
-                finding.fingerprint,
-                status.get(finding.fingerprint, ""),
-                finding.severity,
-                finding.confidence,
-                finding.rule_id,
-                "; ".join(finding.cwe),
-                "; ".join(finding.owasp),
-                finding.file,
-                finding.line,
-                finding.message,
-            )
+            [
+                _csv_cell(value)
+                for value in (
+                    finding.fingerprint,
+                    status.get(finding.fingerprint, ""),
+                    finding.severity,
+                    finding.confidence,
+                    finding.rule_id,
+                    "; ".join(finding.cwe),
+                    "; ".join(finding.owasp),
+                    finding.file,
+                    finding.line,
+                    finding.message,
+                )
+            ]
         )
     return buffer.getvalue()

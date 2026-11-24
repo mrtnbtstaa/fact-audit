@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +14,7 @@ from fact_audit.engines.git_utils import GitError, get_changed_files
 from fact_audit.engines.opengrep import EngineError
 from fact_audit.main import run_ci_command
 from fact_audit.findings import baseline_document, load_baseline, normalize, save_baseline
-from fact_audit.report import generate_report, render_findings
+from fact_audit.report import _env_file, generate_report, render_findings
 
 
 def run_ci(argv: list[str]) -> tuple[int, str, str]:
@@ -257,6 +258,14 @@ class GitUtilsTest(unittest.TestCase):
             with self.assertRaises(GitError):
                 get_changed_files(tmp)
 
+    def test_revision_is_separated_from_git_options(self):
+        with mock.patch("fact_audit.engines.git_utils.subprocess.run") as run:
+            run.return_value = mock.Mock(stdout="", stderr="")
+            get_changed_files("proj", "--output=evil.txt")
+
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[-2:], ["--end-of-options", "--output=evil.txt"])
+
 
 class ReportFallbackTest(unittest.TestCase):
     def test_render_findings_is_deterministic(self):
@@ -274,6 +283,27 @@ class ReportFallbackTest(unittest.TestCase):
         with mock.patch("fact_audit.report.OpenAI") as client:
             generate_report([finding("ERROR")], use_llm=False)
         client.assert_not_called()
+
+    def test_findings_are_sent_as_data_not_instructions(self):
+        response = mock.Mock()
+        response.choices = [mock.Mock(message=mock.Mock(content="# report"))]
+        with mock.patch.dict(os.environ, {"GROQ_API_KEY": "test"}), \
+             mock.patch("fact_audit.report.OpenAI") as client:
+            client.return_value.chat.completions.create.return_value = response
+            generate_report([finding("ERROR")])
+
+        messages = client.return_value.chat.completions.create.call_args.kwargs["messages"]
+        self.assertEqual([m["role"] for m in messages], ["system", "user"])
+        self.assertNotIn("a.py", messages[0]["content"])
+        self.assertIn("<findings_json>", messages[1]["content"])
+        self.assertIn("a.py", messages[1]["content"])
+
+    def test_env_file_is_next_to_the_executable_when_frozen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            exe = Path(tmp) / "fact-audit.exe"
+            with mock.patch.object(sys, "frozen", True, create=True), \
+                 mock.patch.object(sys, "executable", str(exe)):
+                self.assertEqual(_env_file(), Path(tmp) / ".env")
 
 
 if __name__ == "__main__":
