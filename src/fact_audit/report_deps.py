@@ -5,7 +5,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from fact_audit.dataclasses.deps import Config, Dependency, Manifest, ScanResult
-from fact_audit.engines.deps import MANIFESTS
+from fact_audit.engines.deps import MANIFESTS, DepsError
 
 SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
 
@@ -27,6 +27,21 @@ def render(result: ScanResult) -> str:
     lines += _licenses(result)
     lines += _configuration(config)
     return "\n".join(lines).rstrip() + "\n"
+
+
+def write_report(path: Path, result: ScanResult) -> Path:
+    """Render and write, never clobbering a file this scanner did not produce (FR-010)."""
+    if path.exists():
+        try:
+            with path.open(encoding="utf-8") as handle:
+                head = handle.read(64)
+        except (OSError, UnicodeDecodeError):
+            head = ""
+        if not head.startswith("# Dependency Scan Report"):
+            raise DepsError(f"refusing to overwrite {path}: not a dependency scan report")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render(result), encoding="utf-8")
+    return path
 
 
 def _summary(result: ScanResult) -> list[str]:

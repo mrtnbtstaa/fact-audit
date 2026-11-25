@@ -3,8 +3,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from fact_audit.dataclasses.fidings import Finding
-from fact_audit.findings import normalize
+from fact_audit.findings import Finding, normalize
 
 
 def _strings(value) -> list[str]:

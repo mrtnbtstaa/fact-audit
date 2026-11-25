@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import flet as ft
 
-from fact_audit.ui import main, run_scans
+from fact_audit.scans import run_scans
+from fact_audit.ui import main
 
 
 def write(root: Path, name: str, content: str) -> Path:
@@ -37,7 +38,7 @@ class RunScansTest(unittest.TestCase):
             write(root, "requirements.txt", "requests==2.31.0\n")
             lines: list[str] = []
 
-            with mock.patch("fact_audit.ui.run_audit", side_effect=RuntimeError("no key")):
+            with mock.patch("fact_audit.scans.run_audit", side_effect=RuntimeError("no key")):
                 written = run_scans(root, opengrep=True, deps=True, log=lines.append)
 
             self.assertEqual([p.name for p in written], ["deps-report.md"])

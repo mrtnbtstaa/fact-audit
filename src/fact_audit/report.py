@@ -4,8 +4,7 @@ import sys
 from pathlib import Path
 
 from openai import OpenAI
-from .engines.opengrep import Finding
-from .normalize import SEVERITY_ORDER
+from .findings import Finding, SEVERITY_ORDER
 from dotenv import load_dotenv
 
 

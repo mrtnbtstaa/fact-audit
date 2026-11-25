@@ -8,12 +8,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from fact_audit.baseline import baseline_document, load_baseline, save_baseline
+from fact_audit.ci import run_ci_command
 from fact_audit.dataclasses.deps import Advisory, Config, Dependency, Manifest, ScanResult
-from fact_audit.dataclasses.fidings import Finding
 from fact_audit.engines.git_utils import GitError, get_changed_files
 from fact_audit.engines.opengrep import EngineError
-from fact_audit.main import run_ci_command
-from fact_audit.findings import baseline_document, load_baseline, normalize, save_baseline
+from fact_audit.findings import Finding, normalize
 from fact_audit.report import _env_file, generate_report, render_findings
 
 
@@ -75,8 +75,8 @@ class CiTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_pass_writes_artifacts(self):
-        with mock.patch("fact_audit.main.run_audit", return_value=("# Code Audit Report\n", [])), \
-             mock.patch("fact_audit.main.scan", return_value=scan_result()):
+        with mock.patch("fact_audit.ci.run_audit", return_value=("# Code Audit Report\n", [])), \
+             mock.patch("fact_audit.ci.scan", return_value=scan_result()):
             code, out, _ = run_ci([str(self.root), "--out-dir", str(self.root / "artifacts")])
 
         self.assertEqual(code, 0)
@@ -85,31 +85,31 @@ class CiTest(unittest.TestCase):
         self.assertTrue((self.root / "artifacts" / "deps-report.md").is_file())
 
     def test_error_finding_fails(self):
-        with mock.patch("fact_audit.main.run_audit", return_value=("r", [finding("ERROR")])), \
-             mock.patch("fact_audit.main.scan", return_value=scan_result()):
+        with mock.patch("fact_audit.ci.run_audit", return_value=("r", [finding("ERROR")])), \
+             mock.patch("fact_audit.ci.scan", return_value=scan_result()):
             code, out, _ = run_ci([str(self.root)])
 
         self.assertEqual(code, 1)
         self.assertIn("FAIL", out)
 
     def test_warning_passes_by_default_and_fails_when_asked(self):
-        with mock.patch("fact_audit.main.run_audit", return_value=("r", [finding("WARNING")])), \
-             mock.patch("fact_audit.main.scan", return_value=scan_result()):
+        with mock.patch("fact_audit.ci.run_audit", return_value=("r", [finding("WARNING")])), \
+             mock.patch("fact_audit.ci.scan", return_value=scan_result()):
             self.assertEqual(run_ci([str(self.root)])[0], 0)
             self.assertEqual(run_ci([str(self.root), "--fail-on", "warning"])[0], 1)
 
     def test_offline_does_not_gate_vulnerabilities(self):
-        with mock.patch("fact_audit.main.run_audit", return_value=("r", [])), \
-             mock.patch("fact_audit.main.scan", return_value=scan_result([dependency(severity="CRITICAL")])):
+        with mock.patch("fact_audit.ci.run_audit", return_value=("r", [])), \
+             mock.patch("fact_audit.ci.scan", return_value=scan_result([dependency(severity="CRITICAL")])):
             code, out, _ = run_ci([str(self.root)])
 
         self.assertEqual(code, 0)
         self.assertIn("not checked (offline)", out)
 
     def test_online_critical_vulnerability_fails(self):
-        with mock.patch("fact_audit.main.run_audit", return_value=("r", [])), \
-             mock.patch("fact_audit.main.scan", return_value=scan_result([dependency(severity="CRITICAL")])), \
-             mock.patch("fact_audit.engines.feeds.enrich"):
+        with mock.patch("fact_audit.ci.run_audit", return_value=("r", [])), \
+             mock.patch("fact_audit.ci.scan", return_value=scan_result([dependency(severity="CRITICAL")])), \
+             mock.patch("fact_audit.ci.enrich"):
             code, out, _ = run_ci([str(self.root), "--online"])
 
         self.assertEqual(code, 1)
@@ -117,15 +117,15 @@ class CiTest(unittest.TestCase):
 
     def test_license_gate_is_opt_in(self):
         deps = [dependency(license="GPL-3.0")]
-        with mock.patch("fact_audit.main.run_audit", return_value=("r", [])), \
-             mock.patch("fact_audit.main.scan", return_value=scan_result(deps)), \
-             mock.patch("fact_audit.engines.feeds.enrich"):
+        with mock.patch("fact_audit.ci.run_audit", return_value=("r", [])), \
+             mock.patch("fact_audit.ci.scan", return_value=scan_result(deps)), \
+             mock.patch("fact_audit.ci.enrich"):
             self.assertEqual(run_ci([str(self.root), "--online"])[0], 0)
             self.assertEqual(run_ci([str(self.root), "--online", "--fail-on-license"])[0], 1)
 
     def test_engine_failure_exits_three(self):
-        with mock.patch("fact_audit.main.run_audit", side_effect=EngineError("missing")), \
-             mock.patch("fact_audit.main.scan", return_value=scan_result()):
+        with mock.patch("fact_audit.ci.run_audit", side_effect=EngineError("missing")), \
+             mock.patch("fact_audit.ci.scan", return_value=scan_result()):
             code, out, err = run_ci([str(self.root)])
 
         self.assertEqual(code, 3)
@@ -138,8 +138,8 @@ class CiTest(unittest.TestCase):
         self.assertIn("not a directory", err)
 
     def test_no_llm_and_sarif_are_passed_through(self):
-        with mock.patch("fact_audit.main.run_audit", return_value=("r", [])) as audit, \
-             mock.patch("fact_audit.main.scan", return_value=scan_result()):
+        with mock.patch("fact_audit.ci.run_audit", return_value=("r", [])) as audit, \
+             mock.patch("fact_audit.ci.scan", return_value=scan_result()):
             run_ci([str(self.root), "--no-llm", "--diff"])
 
         args = audit.call_args.args
@@ -167,8 +167,8 @@ class BaselineGateTest(unittest.TestCase):
         save_baseline(self.path, baseline_document(str(self.root), list(findings)))
 
     def run_with(self, findings: list[Finding], *extra: str) -> tuple[int, str, str]:
-        with mock.patch("fact_audit.main.run_audit", return_value=("r", findings)), \
-             mock.patch("fact_audit.main.scan", return_value=scan_result()):
+        with mock.patch("fact_audit.ci.run_audit", return_value=("r", findings)), \
+             mock.patch("fact_audit.ci.scan", return_value=scan_result()):
             return run_ci(
                 [str(self.root), "--baseline-file", str(self.path), "--out-dir", str(self.root), *extra]
             )

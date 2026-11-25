@@ -4,19 +4,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from fact_audit.dataclasses.fidings import Finding
-from fact_audit.findings import (
+from fact_audit.baseline import (
     BaselineError,
     baseline_document,
     compare,
-    csv_text,
-    fingerprint,
     load_baseline,
-    normalize,
-    record,
     save_baseline,
     updated_baseline,
 )
+from fact_audit.findings import Finding, csv_text, fingerprint, normalize, record
 
 
 def finding(message: str = "eval used", rule: str = "r.eval", line: int = 1, severity: str = "ERROR") -> Finding:
@@ -102,9 +98,9 @@ class BaselineTest(unittest.TestCase):
 
     def test_baseline_from_another_repository_is_rejected(self):
         findings = normalize(str(self.root), [finding()])
-        with mock.patch("fact_audit.findings.repository_id", return_value="git@a/repo"):
+        with mock.patch("fact_audit.baseline.repository_id", return_value="git@a/repo"):
             save_baseline(self.path, baseline_document(str(self.root), findings))
-        with mock.patch("fact_audit.findings.repository_id", return_value="git@b/repo"):
+        with mock.patch("fact_audit.baseline.repository_id", return_value="git@b/repo"):
             with self.assertRaises(BaselineError):
                 load_baseline(self.path, str(self.root))
 
